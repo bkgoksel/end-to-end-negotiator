@@ -23,13 +23,14 @@ import data
 import utils
 from engine import Engine
 from utils import ContextGenerator
-from agent import LstmAgent, LstmRolloutAgent, RlAgent
+from agent import LstmAgent, LstmRolloutAgent, RlAgent, DumbAgent
 from dialog import Dialog, DialogLogger
+from models.mute import MuteModel
 
 
 class Reinforce(object):
     """Facilitates a dialogue between two agents and constantly updates them."""
-    def __init__(self, dialog, ctx_gen, args, engine, corpus, logger=None):
+    def __init__(self, dialog, ctx_gen, args, engine, corpus, device_id, logger=None):
         self.dialog = dialog
         self.ctx_gen = ctx_gen
         self.args = args
@@ -40,16 +41,16 @@ class Reinforce(object):
     def run(self):
         """Entry point of the training."""
         validset, validset_stats = self.corpus.valid_dataset(self.args.bsz,
-            device_id=self.engine.device_id)
+            device_id=device_id)
         trainset, trainset_stats = self.corpus.train_dataset(self.args.bsz,
-            device_id=self.engine.device_id)
+            device_id=device_id)
         N = len(self.corpus.word_dict)
 
         n = 0
         for ctxs in self.ctx_gen.iter(self.args.nepoch):
             n += 1
             # supervised update
-            if self.args.sv_train_freq > 0 and n % self.args.sv_train_freq == 0:
+            if self.args.sv_train_freq > 0 and n % self.args.sv_train_freq == 0 and self.engine is not None:
                 self.engine.train_single(N, trainset)
 
             self.logger.dump('=' * 80)
@@ -69,8 +70,9 @@ class Reinforce(object):
                 name, float(select_loss), name, np.exp(float(select_loss))),
                 forced=True)
 
-        dump_stats(trainset, trainset_stats, 'train')
-        dump_stats(validset, validset_stats, 'valid')
+        if self.engine is not None:
+            dump_stats(trainset, trainset_stats, 'train')
+            dump_stats(validset, validset_stats, 'valid')
 
         self.logger.dump('final: %s' % self.dialog.show_metrics(), forced=True)
 
@@ -79,8 +81,34 @@ def main():
     parser = argparse.ArgumentParser(description='Reinforce')
     parser.add_argument('--data', type=str, default='./data/negotiate',
         help='location of the data corpus')
+    parser.add_argument('--nembed_word', type=int, default=256,
+        help='size of word embeddings')
+    parser.add_argument('--nembed_ctx', type=int, default=64,
+        help='size of context embeddings')
+    parser.add_argument('--nhid_lang', type=int, default=256,
+        help='size of the hidden state for the language module')
+    parser.add_argument('--nhid_ctx', type=int, default=64,
+        help='size of the hidden state for the context module')
+    parser.add_argument('--nhid_strat', type=int, default=64,
+        help='size of the hidden state for the strategy module')
+    parser.add_argument('--nhid_attn', type=int, default=64,
+        help='size of the hidden state for the attention module')
+    parser.add_argument('--nhid_sel', type=int, default=64,
+        help='size of the hidden state for the selection module')
     parser.add_argument('--unk_threshold', type=int, default=20,
         help='minimum word frequency to be in dictionary')
+    parser.add_argument('--dropout', type=float, default=0.5,
+        help='dropout rate in embedding layer')
+    parser.add_argument('--sel_weight', type=float, default=1.0,
+        help='selection weight')
+    parser.add_argument('--init_range', type=float, default=0.1,
+        help='initialization range')
+    parser.add_argument('--rnn_ctx_encoder', action='store_true', default=False,
+        help='wheather to use RNN for encoding the context')
+    parser.add_argument('--max_epoch', type=int, default=30,
+        help='max number of epochs')
+    parser.add_argument('--dumb_alice', action='store_true', default=False,
+        help='MAGA: make Alice great again')
     parser.add_argument('--alice_model_file', type=str,
         help='Alice model file')
     parser.add_argument('--bob_model_file', type=str,
@@ -135,11 +163,20 @@ def main():
 
     device_id = utils.use_cuda(args.cuda)
 
-    alice_model = utils.load_model(args.alice_model_file)
-    # we don't want to use Dropout during RL
-    alice_model.eval()
-    # Alice is a RL based agent, meaning that she will be learning while selfplaying
-    alice = RlAgent(alice_model, args, name='Alice')
+    corpus = data.WordCorpus(args.data, freq_cutoff=args.unk_threshold, verbose=True)
+    if args.dumb_alice:
+        alice_model = MuteModel(corpus.word_dict, corpus.item_dict, corpus.context_dict, corpus.output_length, args, device_id)
+        # we don't want to use Dropout during RL
+        alice_model.eval()
+        # Alice is a RL based agent, meaning that she will be learning while selfplaying
+        alice = DumbAgent(alice_model, args, name='Alice')
+# DUMB ALICE
+    else:
+        alice_model = (args.alice_model_file)
+        # we don't want to use Dropout during RL
+        alice_model.eval()
+        # Alice is a RL based agent, meaning that she will be learning while selfplaying
+        alice = RlAgent(alice_model, args, name='Alice')
 
     # we keep Bob frozen, i.e. we don't update his parameters
     bob_ty = LstmRolloutAgent if args.smart_bob else LstmAgent
@@ -151,14 +188,12 @@ def main():
     logger = DialogLogger(verbose=args.verbose, log_file=args.log_file)
     ctx_gen = ContextGenerator(args.context_file)
 
-    corpus = data.WordCorpus(args.data, freq_cutoff=args.unk_threshold)
-    engine = Engine(alice_model, args, device_id, verbose=False)
+    engine = None if args.dumb_alice else Engine(alice_model, args, device_id, verbose=False)
 
-    reinforce = Reinforce(dialog, ctx_gen, args, engine, corpus, logger)
+    reinforce = Reinforce(dialog, ctx_gen, args, engine, corpus, device_id, logger)
     reinforce.run()
 
     utils.save_model(alice.model, args.output_model_file)
-
 
 if __name__ == '__main__':
     main()

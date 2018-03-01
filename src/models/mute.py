@@ -1,4 +1,5 @@
-import modules
+from models import modules
+from models import dialog_model
 
 import torch
 import torch.nn as nn
@@ -58,7 +59,7 @@ class ProposerModule(modules.CudaModule):
         logits = [decoder.forward(h).squeeze(0) for decoder in self.sel_decoders]
         return logits
 
-class MuteModel(modules.DialogModel):
+class MuteModel(dialog_model.DialogModel):
     def __init__(self, word_dict, item_dict, context_dict, output_length, args, device_id):
         super(MuteModel, self).__init__(word_dict, item_dict, context_dict, output_length, args, device_id, init_writer=False)
         self.writer = ProposerModule(word_dict, item_dict, args)
