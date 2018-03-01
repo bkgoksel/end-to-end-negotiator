@@ -410,21 +410,30 @@ class DumbAgent(object):
 
         context: a list of context tokens.
         """
-        self.conversation_memory = []
+        super(RlAgent, self).feed_context(ctx)
+        # save all the log probs for each generated word,
+        # so we can use it later to estimate policy gradient.
         self.logprobs = []
-        self.context_encoding = self.model.context_encoder(context)
 
     def read(self, inpt):
         """Read an utterance from your partner.
 
         inpt: a list of English words describing a sentence.
         """
-        self.conversation_memory.append(self.model.conversation_encoder(self.conversation_memory, self.context_encoding, inpt))
+        inpt = self._encode(inpt, self.model.word_dict)
+        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
+        # append new hidded states to the current list of the hidden states
+        self.lang_hs.append(lang_hs.squeeze(1))
+        # first add the special 'THEM:' token
+        self.words.append(self.model.word2var('THEM:'))
+        # then read the utterance
+        self.words.append(Variable(inpt))
+        assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
 
 
     def write(self):
         # generate a new utterance
-        logits = self.model.generate_choice_logits(words, lang_hs, self.ctx_h)
+        logits = self.model.write(words, self.lang_hs, self.ctx_h)
         # construct probability distribution over only the valid choices
         choices_logits = []
         for i in range(self.domain.selection_length()):
@@ -541,7 +550,7 @@ class DumbAgent(object):
             self.model_plot.update(self.t)
             self.reward_plot.update('reward', self.t, reward)
             self.loss_plot.update('loss', self.t, loss.data[0])
-        self.opt.step ()
+        self.opt.step()
 
 class HumanAgent(Agent):
     """An agent that is used by a human to converse with AI."""
