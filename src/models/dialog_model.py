@@ -171,7 +171,7 @@ class DialogModel(modules.CudaModule):
         # perform attention
         h = h.transpose(0, 1).contiguous()
         logit = self.attn(h.view(-1, 2 * self.args.nhid_attn)).view(h.size(0), h.size(1))
-        prob = F.softmax(logit).unsqueeze(2).expand_as(h)
+        prob = F.softmax(logit, dim=0).unsqueeze(2).expand_as(h)
         attn = torch.sum(torch.mul(h, prob), 1, keepdim=True).transpose(0, 1).contiguous()
 
         # concatenate attention and context hidden and pass it to the selection encoder
@@ -200,7 +200,7 @@ class DialogModel(modules.CudaModule):
 
         # perform attention
         logit = self.attn(h).squeeze(1)
-        prob = F.softmax(logit).unsqueeze(1).expand_as(h)
+        prob = F.softmax(logit, dim=0).unsqueeze(1).expand_as(h)
         attn = torch.sum(torch.mul(h, prob), 0, keepdim=True)
 
         # concatenate attention and context hidden and pass it to the selection encoder
@@ -299,8 +299,8 @@ class DialogModel(modules.CudaModule):
                 mask = Variable(self.special_token_mask)
                 scores = scores.add(mask)
 
-            prob = F.softmax(scores)
-            logprob = F.log_softmax(scores)
+            prob = F.softmax(scores, dim=0)
+            logprob = F.log_softmax(scores, dim=0)
 
             word = prob.multinomial().detach()
             logprob = logprob.gather(0, word)

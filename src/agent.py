@@ -157,11 +157,11 @@ class LstmAgent(Agent):
         choice_logit = torch.sum(torch.cat(choices_logits, 1), 1, keepdim=False)
         # subtract the max to softmax more stable
         choice_logit = choice_logit.sub(choice_logit.max().data[0])
-        prob = F.softmax(choice_logit)
+        prob = F.softmax(choice_logit, dim=0)
         if sample:
             # sample a choice
             idx = prob.multinomial().detach()
-            logprob = F.log_softmax(choice_logit).gather(0, idx)
+            logprob = F.log_softmax(choice_logit, dim=0).gather(0, idx)
         else:
             # take the most probably choice
             _, idx = prob.max(0, keepdim=True)
@@ -414,9 +414,6 @@ class DumbAgent(LstmAgent):
         # save all the log probs for each generated word,
         # so we can use it later to estimate policy gradient.
         self.logprobs = []
-        print(self.lang_h.shape)
-        self.lang_h = self.lang_h.squeeze(1)
-        print(self.lang_h.shape)
 
     def read(self, inpt):
         """Read an utterance from your partner.
@@ -424,42 +421,43 @@ class DumbAgent(LstmAgent):
         inpt: a list of English words describing a sentence.
         """
         inpt = self._encode(inpt, self.model.word_dict)
-        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h.unsqueeze(1), self.ctx_h)
+        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
         # append new hidded states to the current list of the hidden states
-        self.lang_hs.append(lang_hs.squeeze(1))
-        # first add the special 'THEM:' token
-        self.words.append(self.model.word2var('THEM:').unsqueeze(1))
+        self.lang_hs.append(lang_hs)
         # then read the utterance
+        self.words.append(self.model.word2var('THEM:').unsqueeze(1))
         self.words.append(Variable(inpt))
         assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
 
 
     def write(self, sample=False):
         choices = self.domain.generate_choices(self.context)
-
+        init = False
         if len(self.words) == 0:
+            init = True
             self.words.append(self.model.word2var('YOU:').unsqueeze(0))
             self.lang_hs.append(self.lang_h)
 
         words = torch.cat(self.words)
+        lang_hs = torch.cat(self.lang_hs)
         # generate a new utterance
-        logits = self.model.write(words, self.lang_hs[-1], self.ctx_h)
+        logits = self.model.write(words, lang_hs, self.ctx_h)
         # construct probability distribution over only the valid choices
         choices_logits = []
         for i in range(self.domain.selection_length()):
             idxs = [self.model.item_dict.get_idx(c[i]) for c in choices]
             idxs = Variable(torch.from_numpy(np.array(idxs)))
             idxs = self.model.to_device(idxs)
-            choices_logits.append(torch.gather(logits[i], 0, idxs).unsqueeze(1))
+            choices_logits.append(torch.gather(logits[i].squeeze(0), 0, idxs).unsqueeze(1))
 
         choice_logit = torch.sum(torch.cat(choices_logits, 1), 1, keepdim=False)
         # subtract the max to softmax more stable
         choice_logit = choice_logit.sub(choice_logit.max().data[0])
-        prob = F.softmax(choice_logit)
+        prob = F.softmax(choice_logit, dim=0)
         if sample:
             # sample a choice
             idx = prob.multinomial().detach()
-            logprob = F.log_softmax(choice_logit).gather(0, idx)
+            logprob = F.log_softmax(choice_logit, dim=0).gather(0, idx)
         else:
             # take the most probably choice
             _, idx = prob.max(0, keepdim=True)
@@ -471,14 +469,17 @@ class DumbAgent(LstmAgent):
         output = choices[idx.data[0]][:self.domain.selection_length()]
         output = output[:3]
         vals = [o.split("=")[1] if "=" in o else o for o in output]
-        if "reward" in vals or "no agreement" in vals:
-            utterance = "Deal" if "agreement" in vals else "No"
+        if "<no_agreement>" in vals:
+            utterance = "No deal" if "<no_agreement>" in vals else "Deal"
         else:
             utterance = "I would like %s balls, %s hats, and %s books. You can have the rest." % (vals[0], vals[1], vals[2])
+        utterance = utterance.split(' ')
         inpt = self._encode(utterance, self.model.word_dict)
         lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
 
         self.lang_hs.append(lang_hs)
+        if not init:
+            self.words.append(self.model.word2var('YOU:').unsqueeze(1))
         # then append the utterance
         self.words.append(Variable(inpt))
         return utterance
@@ -492,6 +493,8 @@ class DumbAgent(LstmAgent):
 
     def _choose(self, sample=False):
         choices = self.domain.generate_choices(self.context)
+        words = torch.cat(self.words)
+        lang_hs = torch.cat(self.lang_hs)
         # concatenate the list of the hidden states into one tensor
         logits = self.model.generate_choice_logits(words, lang_hs, self.ctx_h)
         # construct probability distribution over only the valid choices
@@ -505,11 +508,11 @@ class DumbAgent(LstmAgent):
         choice_logit = torch.sum(torch.cat(choices_logits, 1), 1, keepdim=False)
         # subtract the max to softmax more stable
         choice_logit = choice_logit.sub(choice_logit.max().data[0])
-        prob = F.softmax(choice_logit)
+        prob = F.softmax(choice_logit, dim=0)
         if sample:
             # sample a choice
             idx = prob.multinomial().detach()
-            logprob = F.log_softmax(choice_logit).gather(0, idx)
+            logprob = F.log_softmax(choice_logit, dim=0).gather(0, idx)
         else:
             # take the most probably choice
             _, idx = prob.max(0, keepdim=True)
