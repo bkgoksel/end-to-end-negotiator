@@ -373,6 +373,108 @@ class RlAgent(LstmAgent):
             self.loss_plot.update('loss', self.t, loss.data[0])
         self.opt.step()
 
+class DumbAgent(object):
+    """Agent's interface.
+
+    The dialogue should proceed in the following way:
+
+    1) feed_context to each of the agent.
+    2) randomly pick an agent who will start the conversation.
+    3) the starting agent will write down her utterance.
+    4) the other agent will read the pronounced utterance.
+    5) unless the end of dialogue is pronounced, swap the agents and repeat the steps 3-4.
+    6) once the conversation is over, generate choices for each agent and calculate the reward.
+    7) pass back to the reward to the update function.
+
+
+    See Dialogue.run in the dialog.py for more details.
+    """
+
+    def __init__(self, args, model, name="Alice"):
+        self.name = name
+        self.human = False
+        self.args = args
+        self.model = model
+        self.domain = domain.get_domain(args.domain)
+        self.opt = t.optim.SGD(
+                self.model.parameters(),
+                lr=self.args.rl_lr,
+                momentum=self.args.momentum,
+                nesterov=(self.args.nesterov and self.args.momentum > 0))
+
+        self.all_rewards = []
+        self.t = 0
+
+    def feed_context(self, context):
+        """Feed context in to start new conversation.
+
+        context: a list of context tokens.
+        """
+        self.conversation_memory = []
+        self.logprobs = []
+        self.context_encoding = self.model.context_encoder(context)
+
+    def read(self, inpt):
+        """Read an utterance from your partner.
+
+        inpt: a list of English words describing a sentence.
+        """
+        self.conversation_memory.append(self.model.conversation_encoder(self.conversation_memory, self.context_encoding, inpt))
+
+    def write(self):
+        """Generate your own utterance."""
+        proposal = self.model.proposer(self.context_encoding, self.converstaion_memory)
+        utterance = self.utterance_generator(choice)
+        self.converstion_memory.append(self.model.conversation_encoder(self.conversation_memory, utterance))
+        return utterance
+
+    def _choose(self, sample=False):
+        choices = self.domain.generate_choices(self.context)
+        # concatenate the list of the hidden states into one tensor
+        choice = self.choice_encoder(self.conversation_memory)
+        logits = self.model.generate_choice_logits(words, lang_hs, self.ctx_h)
+
+    def choose(self):
+        """Call it after the conversation is over, to make the selection."""
+        if self.args.eps < np.random.rand():
+            choice, _, _ = self._choose(sample=False)
+        else:
+            choice, logprob, _ = self._choose(sample=True)
+            # save log prob for the selection as well, if we sample it
+            self.logprobs.append(logprob)
+        return choice
+
+    def update(self, agree, reward):
+        """After end of each dialogue the reward will be passed back to update the parameters.
+
+        agree: a boolean flag that specifies if the agents agreed on the deal.
+        reward: the reward that the agent receives after the dialogue. 0 if there is no agreement.
+        """
+        self.t += 1
+        reward = reward if agree else 0
+        self.all_rewards.append(reward)
+        # standardize the reward
+        r = (reward - np.mean(self.all_rewards)) / max(1e-4, np.std(self.all_rewards))
+        # compute accumulated discounted reward
+        g = Variable(torch.zeros(1, 1).fill_(r))
+        rewards = []
+        for _ in self.logprobs:
+            rewards.insert(0, g)
+            g = g * self.args.gamma
+
+        loss = 0
+        # estimate the loss using one MonteCarlo rollout
+        for lp, r in zip(self.logprobs, rewards):
+            loss -= lp * r
+
+        self.opt.zero_grad()
+        loss.backward()
+        nn.utils.clip_grad_norm(self.model.parameters(), self.args.rl_clip)
+        if self.args.visual and self.t % 10 == 0:
+            self.model_plot.update(self.t)
+            self.reward_plot.update('reward', self.t, reward)
+            self.loss_plot.update('loss', self.t, loss.data[0])
+        self.opt.step ()
 
 class HumanAgent(Agent):
     """An agent that is used by a human to converse with AI."""
