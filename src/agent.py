@@ -117,7 +117,7 @@ class LstmAgent(Agent):
         # append new hidded states to the current list of the hidden states
         self.lang_hs.append(lang_hs.squeeze(1))
         # first add the special 'THEM:' token
-        self.words.append(self.model.word2var('THEM:'))
+        self.words.append(self.model.word2var('THEM:').unsqueeze(1))
         # then read the utterance
         self.words.append(Variable(inpt))
         assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
@@ -129,7 +129,7 @@ class LstmAgent(Agent):
         # append new hidded states to the current list of the hidden states
         self.lang_hs.append(lang_hs)
         # first add the special 'YOU:' token
-        self.words.append(self.model.word2var('YOU:'))
+        self.words.append(self.model.word2var('YOU:').unsqueeze(1))
         # then append the utterance
         self.words.append(outs)
         assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
@@ -331,7 +331,7 @@ class RlAgent(LstmAgent):
         self.logprobs.extend(logprobs)
         self.lang_hs.append(lang_hs)
         # first add the special 'YOU:' token
-        self.words.append(self.model.word2var('YOU:'))
+        self.words.append(self.model.word2var('YOU:').unsqueeze(1))
         # then append the utterance
         self.words.append(outs)
         assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
@@ -414,6 +414,9 @@ class DumbAgent(LstmAgent):
         # save all the log probs for each generated word,
         # so we can use it later to estimate policy gradient.
         self.logprobs = []
+        print(self.lang_h.shape)
+        self.lang_h = self.lang_h.squeeze(1)
+        print(self.lang_h.shape)
 
     def read(self, inpt):
         """Read an utterance from your partner.
@@ -421,21 +424,26 @@ class DumbAgent(LstmAgent):
         inpt: a list of English words describing a sentence.
         """
         inpt = self._encode(inpt, self.model.word_dict)
-        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
+        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h.unsqueeze(1), self.ctx_h)
         # append new hidded states to the current list of the hidden states
         self.lang_hs.append(lang_hs.squeeze(1))
         # first add the special 'THEM:' token
-        self.words.append(self.model.word2var('THEM:'))
+        self.words.append(self.model.word2var('THEM:').unsqueeze(1))
         # then read the utterance
         self.words.append(Variable(inpt))
         assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
 
 
-    def write(self):
-        self.words.append(self.model.word2var('YOU:'))
+    def write(self, sample=False):
+        choices = self.domain.generate_choices(self.context)
+
+        if len(self.words) == 0:
+            self.words.append(self.model.word2var('YOU:').unsqueeze(0))
+            self.lang_hs.append(self.lang_h)
+
         words = torch.cat(self.words)
         # generate a new utterance
-        logits = self.model.write(words, self.lang_h, self.ctx_h)
+        logits = self.model.write(words, self.lang_hs[-1], self.ctx_h)
         # construct probability distribution over only the valid choices
         choices_logits = []
         for i in range(self.domain.selection_length()):
@@ -460,10 +468,13 @@ class DumbAgent(LstmAgent):
         p_agree = prob[idx.data[0]]
 
         # Pick only your choice
-        output = choices[idx.data[0]][:self.domain.selection_length()], logprob, p_agree.data[0]
+        output = choices[idx.data[0]][:self.domain.selection_length()]
         output = output[:3]
-        vals = [o.split("=")[1] for o in outputs]
-        utterance = "I would like %s balls, %s hats, and %s books. You can have the rest." % (vals[0], vals[1], vals[2])
+        vals = [o.split("=")[1] if "=" in o else o for o in output]
+        if "reward" in vals or "no agreement" in vals:
+            utterance = "Deal" if "agreement" in vals else "No"
+        else:
+            utterance = "I would like %s balls, %s hats, and %s books. You can have the rest." % (vals[0], vals[1], vals[2])
         inpt = self._encode(utterance, self.model.word_dict)
         lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
 
@@ -482,7 +493,6 @@ class DumbAgent(LstmAgent):
     def _choose(self, sample=False):
         choices = self.domain.generate_choices(self.context)
         # concatenate the list of the hidden states into one tensor
-        choice = self.choice_encoder(self.conversation_memory)
         logits = self.model.generate_choice_logits(words, lang_hs, self.ctx_h)
         # construct probability distribution over only the valid choices
         choices_logits = []

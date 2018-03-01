@@ -173,7 +173,7 @@ def main():
         alice = DumbAgent(alice_model, args, name='Alice')
 # DUMB ALICE
     else:
-        alice_model = (args.alice_model_file)
+        alice_model = utils.load_model(args.alice_model_file)
         # we don't want to use Dropout during RL
         alice_model.eval()
         # Alice is a RL based agent, meaning that she will be learning while selfplaying

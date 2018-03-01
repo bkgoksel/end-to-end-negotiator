@@ -42,6 +42,10 @@ class ProposerModule(modules.CudaModule):
 
     def forward(self, h, attn_h, ctx_h):
         # runs selection rnn over the hidden state h
+        h = h.unsqueeze(1)
+        if len(h) != 3:
+            import pdb
+            pdb.set_trace()
         h, _ = self.sel_rnn(h, attn_h)
         h = h.squeeze(1)
 
@@ -67,8 +71,12 @@ class MuteModel(dialog_model.DialogModel):
     def write(self, inpt, lang_h, ctx_h):
         # run a birnn over the concatenation of the input embeddings and
         # language model hidden states
+        if len(lang_h.shape) == 3:
+            import pdb
+            pdb.set_trace()
         inpt_emb = self.word_encoder(inpt)
-        h = torch.cat([lang_h.unsqueeze(1), inpt_emb], 2)
+        inpt_emb = inpt_emb.squeeze(1)
+        h = torch.cat([lang_h, inpt_emb], 1)
         h = self.dropout(h)
 
         # runs selection rnn over the hidden state h

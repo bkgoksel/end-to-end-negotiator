@@ -135,7 +135,7 @@ class DialogModel(modules.CudaModule):
         # add a "THEM:" token to the start of the message
         prefix = Variable(torch.LongTensor(1))
         prefix.data.fill_(self.word_dict.get_idx(prefix_token))
-        inpt = torch.cat([self.to_device(prefix), inpt])
+        inpt = torch.cat([self.to_device(prefix.unsqueeze(0)), inpt])
 
         # embed words
         inpt_emb = self.word_encoder(inpt)
