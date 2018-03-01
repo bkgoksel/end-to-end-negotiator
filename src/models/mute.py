@@ -61,7 +61,7 @@ class ProposerModule(modules.CudaModule):
 
 class MuteModel(dialog_model.DialogModel):
     def __init__(self, word_dict, item_dict, context_dict, output_length, args, device_id):
-        super(MuteModel, self).__init__(word_dict, item_dict, context_dict, output_length, args, device_id, init_writer=False)
+        super(MuteModel, self).__init__(word_dict, item_dict, context_dict, output_length, args, device_id)
         self.writer = ProposerModule(word_dict, item_dict, output_length, device_id, args)
 
     def write(self, inpt, lang_h, ctx_h):
