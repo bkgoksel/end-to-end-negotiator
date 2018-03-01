@@ -410,23 +410,74 @@ class DumbAgent(object):
 
         context: a list of context tokens.
         """
-        self.conversation_memory = []
+        super(RlAgent, self).feed_context(ctx)
+        # save all the log probs for each generated word,
+        # so we can use it later to estimate policy gradient.
         self.logprobs = []
-        self.context_encoding = self.model.context_encoder(context)
 
     def read(self, inpt):
         """Read an utterance from your partner.
 
         inpt: a list of English words describing a sentence.
         """
-        self.conversation_memory.append(self.model.conversation_encoder(self.conversation_memory, self.context_encoding, inpt))
+        inpt = self._encode(inpt, self.model.word_dict)
+        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
+        # append new hidded states to the current list of the hidden states
+        self.lang_hs.append(lang_hs.squeeze(1))
+        # first add the special 'THEM:' token
+        self.words.append(self.model.word2var('THEM:'))
+        # then read the utterance
+        self.words.append(Variable(inpt))
+        assert (torch.cat(self.words).size()[0] == torch.cat(self.lang_hs).size()[0])
+
 
     def write(self):
-        """Generate your own utterance."""
-        proposal = self.model.proposer(self.context_encoding, self.converstaion_memory)
-        utterance = self.utterance_generator(choice)
-        self.converstion_memory.append(self.model.conversation_encoder(self.conversation_memory, utterance))
-        return utterance
+        # generate a new utterance
+        logits = self.model.write(words, self.lang_hs, self.ctx_h)
+        # construct probability distribution over only the valid choices
+        choices_logits = []
+        for i in range(self.domain.selection_length()):
+            idxs = [self.model.item_dict.get_idx(c[i]) for c in choices]
+            idxs = Variable(torch.from_numpy(np.array(idxs)))
+            idxs = self.model.to_device(idxs)
+            choices_logits.append(torch.gather(logits[i], 0, idxs).unsqueeze(1))
+
+        choice_logit = torch.sum(torch.cat(choices_logits, 1), 1, keepdim=False)
+        # subtract the max to softmax more stable
+        choice_logit = choice_logit.sub(choice_logit.max().data[0])
+        prob = F.softmax(choice_logit)
+        if sample:
+            # sample a choice
+            idx = prob.multinomial().detach()
+            logprob = F.log_softmax(choice_logit).gather(0, idx)
+        else:
+            # take the most probably choice
+            _, idx = prob.max(0, keepdim=True)
+            logprob = None
+
+        p_agree = prob[idx.data[0]]
+
+        # Pick only your choice
+        output = choices[idx.data[0]][:self.domain.selection_length()], logprob, p_agree.data[0]
+        output = output[:3]
+        vals = [o.split("=")[1] for o in outputs]
+        utterance = "I would like %s balls, %s hats, and %s books. You can have the rest." % (vals[0], vals[1], vals[2])
+        inpt = self._encode(utterance, self.model.word_dict)
+        lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
+        
+        self.lang_hs.append(lang_hs)
+        # first add the special 'YOU:' token
+        self.words.append(self.model.word2var('YOU:'))
+        # then append the utterance
+        self.words.append(Variable(inpt))
+        return utterance        
+
+    # def write(self):
+    #     """Generate your own utterance."""
+    #     proposal = self.model.proposer(self.context_encoding, self.converstaion_memory)
+    #     utterance = self.utterance_generator(choice)
+    #     self.converstion_memory.append(self.model.conversation_encoder(self.conversation_memory, utterance))
+    #     return utterance
 
     def _choose(self, sample=False):
         choices = self.domain.generate_choices(self.context)
@@ -499,7 +550,7 @@ class DumbAgent(object):
             self.model_plot.update(self.t)
             self.reward_plot.update('reward', self.t, reward)
             self.loss_plot.update('loss', self.t, loss.data[0])
-        self.opt.step ()
+        self.opt.step()
 
 class HumanAgent(Agent):
     """An agent that is used by a human to converse with AI."""
