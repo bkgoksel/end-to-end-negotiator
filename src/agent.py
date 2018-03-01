@@ -373,7 +373,7 @@ class RlAgent(LstmAgent):
             self.loss_plot.update('loss', self.t, loss.data[0])
         self.opt.step()
 
-class DumbAgent(object):
+class DumbAgent(LstmAgent):
     """Agent's interface.
 
     The dialogue should proceed in the following way:
@@ -390,13 +390,13 @@ class DumbAgent(object):
     See Dialogue.run in the dialog.py for more details.
     """
 
-    def __init__(self, args, model, name="Alice"):
+    def __init__(self, model, args, name="Alice"):
         self.name = name
         self.human = False
         self.args = args
         self.model = model
         self.domain = domain.get_domain(args.domain)
-        self.opt = t.optim.SGD(
+        self.opt = optim.SGD(
                 self.model.parameters(),
                 lr=self.args.rl_lr,
                 momentum=self.args.momentum,
@@ -410,7 +410,7 @@ class DumbAgent(object):
 
         context: a list of context tokens.
         """
-        super(DumbAgent, self).feed_context(ctx)
+        super(DumbAgent, self).feed_context(context)
         # save all the log probs for each generated word,
         # so we can use it later to estimate policy gradient.
         self.logprobs = []
@@ -432,8 +432,10 @@ class DumbAgent(object):
 
 
     def write(self):
+        self.words.append(self.model.word2var('YOU:'))
+        words = torch.cat(self.words)
         # generate a new utterance
-        logits = self.model.write(self.lang_h, self.ctx_h)
+        logits = self.model.write(words, self.lang_h, self.ctx_h)
         # construct probability distribution over only the valid choices
         choices_logits = []
         for i in range(self.domain.selection_length()):
@@ -466,8 +468,6 @@ class DumbAgent(object):
         lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
 
         self.lang_hs.append(lang_hs)
-        # first add the special 'YOU:' token
-        self.words.append(self.model.word2var('YOU:'))
         # then append the utterance
         self.words.append(Variable(inpt))
         return utterance

@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 
 class ProposerModule(modules.CudaModule):
-    def __init__(self, word_dict, item_dict, args):
+    def __init__(self, word_dict, item_dict, output_length, device_id, args):
         super(ProposerModule, self).__init__(device_id)
         self.word_dict = word_dict
         self.item_dict = item_dict
@@ -40,7 +40,7 @@ class ProposerModule(modules.CudaModule):
         for i in range(output_length):
             self.sel_decoders.append(nn.Linear(args.nhid_sel, len(self.item_dict)))
 
-    def forward(self, h, attn_h):
+    def forward(self, h, attn_h, ctx_h):
         # runs selection rnn over the hidden state h
         h, _ = self.sel_rnn(h, attn_h)
         h = h.squeeze(1)
@@ -62,16 +62,18 @@ class ProposerModule(modules.CudaModule):
 class MuteModel(dialog_model.DialogModel):
     def __init__(self, word_dict, item_dict, context_dict, output_length, args, device_id):
         super(MuteModel, self).__init__(word_dict, item_dict, context_dict, output_length, args, device_id, init_writer=False)
-        self.writer = ProposerModule(word_dict, item_dict, args)
+        self.writer = ProposerModule(word_dict, item_dict, output_length, device_id, args)
 
-    def write(self, lang_h, ctx_h):
+    def write(self, inpt, lang_h, ctx_h):
         # run a birnn over the concatenation of the input embeddings and
         # language model hidden states
         inpt_emb = self.word_encoder(inpt)
         h = torch.cat([lang_h.unsqueeze(1), inpt_emb], 2)
         h = self.dropout(h)
+
+        # runs selection rnn over the hidden state h
         attn_h = self.zero_hid(h.size(1), self.args.nhid_attn, copies=2)
-        logits = self.writer(h, attn_h)
+        logits = self.writer(h, attn_h, ctx_h)
         return logits
 
     def score_sent(self, sent):

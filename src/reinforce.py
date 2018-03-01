@@ -37,13 +37,14 @@ class Reinforce(object):
         self.engine = engine
         self.corpus = corpus
         self.logger = logger if logger else DialogLogger()
+        self.device_id = device_id
 
     def run(self):
         """Entry point of the training."""
         validset, validset_stats = self.corpus.valid_dataset(self.args.bsz,
-            device_id=device_id)
+            device_id=self.device_id)
         trainset, trainset_stats = self.corpus.train_dataset(self.args.bsz,
-            device_id=device_id)
+            device_id=self.device_id)
         N = len(self.corpus.word_dict)
 
         n = 0
