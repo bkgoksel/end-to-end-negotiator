@@ -410,7 +410,7 @@ class DumbAgent(object):
 
         context: a list of context tokens.
         """
-        super(RlAgent, self).feed_context(ctx)
+        super(DumbAgent, self).feed_context(ctx)
         # save all the log probs for each generated word,
         # so we can use it later to estimate policy gradient.
         self.logprobs = []
@@ -464,13 +464,13 @@ class DumbAgent(object):
         utterance = "I would like %s balls, %s hats, and %s books. You can have the rest." % (vals[0], vals[1], vals[2])
         inpt = self._encode(utterance, self.model.word_dict)
         lang_hs, self.lang_h = self.model.read(Variable(inpt), self.lang_h, self.ctx_h)
-        
+
         self.lang_hs.append(lang_hs)
         # first add the special 'YOU:' token
         self.words.append(self.model.word2var('YOU:'))
         # then append the utterance
         self.words.append(Variable(inpt))
-        return utterance        
+        return utterance
 
     # def write(self):
     #     """Generate your own utterance."""

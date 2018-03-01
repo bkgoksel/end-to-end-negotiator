@@ -6,9 +6,10 @@ import torch.nn.functional as F
 
 
 class ProposerModule(modules.CudaModule):
-    def __init__(self, word_dict, args):
+    def __init__(self, word_dict, item_dict, args):
         super(ProposerModule, self).__init__(device_id)
         self.word_dict = word_dict
+        self.item_dict = item_dict
         # a bidirectional selection RNN
         # it will go through input words and generate by the reader hidden states
         # to produce a hidden representation
@@ -60,7 +61,7 @@ class ProposerModule(modules.CudaModule):
 class MuteModel(modules.DialogModel):
     def __init__(self, word_dict, item_dict, context_dict, output_length, args, device_id):
         super(MuteModel, self).__init__(word_dict, item_dict, context_dict, output_length, args, device_id, init_writer=False)
-        self.writer = ProposerModule(word_dict, args)
+        self.writer = ProposerModule(word_dict, item_dict, args)
 
     def write(self, lang_h, ctx_h):
         # run a birnn over the concatenation of the input embeddings and
