@@ -26,7 +26,7 @@ from models import modules
 
 
 class DialogModel(modules.CudaModule):
-    def __init__(self, word_dict, item_dict, context_dict, output_length, args, device_id):
+    def __init__(self, word_dict, item_dict, context_dict, output_length, args, device_id, init_writer=True):
         super(DialogModel, self).__init__(device_id)
 
         domain = get_domain(args.domain)
@@ -35,6 +35,7 @@ class DialogModel(modules.CudaModule):
         self.item_dict = item_dict
         self.context_dict = context_dict
         self.args = args
+        self.init_writer = init_writer
 
         # embedding for words
         self.word_encoder = nn.Embedding(len(self.word_dict), args.nembed_word)
@@ -51,17 +52,18 @@ class DialogModel(modules.CudaModule):
             hidden_size=args.nhid_lang,
             bias=True)
         self.decoder = nn.Linear(args.nhid_lang, args.nembed_word)
-        # a writer, a RNNCell that will be used to generate utterances
-        self.writer = nn.GRUCell(
-            input_size=args.nhid_ctx + args.nembed_word,
-            hidden_size=args.nhid_lang,
-            bias=True)
+        if self.init_writer:
+            # a writer, a RNNCell that will be used to generate utterances
+            self.writer = nn.GRUCell(
+                input_size=args.nhid_ctx + args.nembed_word,
+                hidden_size=args.nhid_lang,
+                bias=True)
 
-        # tie the weights of reader and writer
-        self.writer.weight_ih = self.reader.weight_ih_l0
-        self.writer.weight_hh = self.reader.weight_hh_l0
-        self.writer.bias_ih = self.reader.bias_ih_l0
-        self.writer.bias_hh = self.reader.bias_hh_l0
+            # tie the weights of reader and writer
+            self.writer.weight_ih = self.reader.weight_ih_l0
+            self.writer.weight_hh = self.reader.weight_hh_l0
+            self.writer.bias_ih = self.reader.bias_ih_l0
+            self.writer.bias_hh = self.reader.bias_hh_l0
 
         self.dropout = nn.Dropout(args.dropout)
 
@@ -214,6 +216,8 @@ class DialogModel(modules.CudaModule):
 
     def write_batch(self, bsz, lang_h, ctx_h, temperature, max_words=100):
         """Generate sentenses for a batch simultaneously."""
+        if not self.init_writer:
+            raise "Writer not initialized"
         eod = self.word_dict.get_idx('<selection>')
 
         # resize the language hidden and context hidden states
@@ -264,6 +268,8 @@ class DialogModel(modules.CudaModule):
         """Generate a sentence word by word and feed the output of the
         previous timestep as input to the next.
         """
+        if not self.init_writer:
+            raise "Writer not initialized"
         outs, logprobs, lang_hs = [], [], []
         # remove batch dimension from the language and context hidden states
         lang_h = lang_h.squeeze(1)
@@ -324,6 +330,8 @@ class DialogModel(modules.CudaModule):
 
     def score_sent(self, sent, lang_h, ctx_h, temperature):
         """Computes likelihood of a given sentence."""
+        if not self.init_writer:
+            raise "Writer not initialized"
         score = 0
         # remove batch dimension from the language and context hidden states
         lang_h = lang_h.squeeze(1)
