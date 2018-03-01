@@ -433,7 +433,7 @@ class DumbAgent(object):
 
     def write(self):
         # generate a new utterance
-        logits = self.model.write(words, self.lang_hs, self.ctx_h)
+        logits = self.model.write(self.lang_h, self.ctx_h)
         # construct probability distribution over only the valid choices
         choices_logits = []
         for i in range(self.domain.selection_length()):
