@@ -163,7 +163,7 @@ def main():
     args = parser.parse_args()
 
     device_id = utils.use_cuda(args.cuda)
-
+    run = "python3 reinforce.py --alice_model_file='./models/sv_model.th' --bob_model_file='./models/sv_model.th' --output_model_file='output.th' --verbose --ref_text='./data/negotiate/train.txt' --dumb_alice --context_file='./data/negotiate/selfplay.txt'"
     corpus = data.WordCorpus(args.data, freq_cutoff=args.unk_threshold, verbose=True)
     if args.dumb_alice:
         alice_model = MuteModel(corpus.word_dict, corpus.item_dict, corpus.context_dict, corpus.output_length, args, device_id)
