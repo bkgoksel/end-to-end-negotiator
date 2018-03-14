@@ -145,7 +145,7 @@ class TemplateAgent(object):
             return True
 
         for (proposed, count) in zip(proposal, self.item_counts):
-            if proposed > count:
+            if proposed.data[0] > count:
                 return False
 
         return True
