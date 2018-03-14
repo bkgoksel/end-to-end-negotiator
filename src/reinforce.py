@@ -177,7 +177,7 @@ def main():
     if args.super_dumb:
         # alice_model = SimpleProposerModule()
         # alice_model.eval()
-        alice = TemplateAgent(args.domain, corpus.word_dict, args, name='Alice is dead Long live Alice')
+        alice = TemplateAgent(args.domain, corpus.word_dict, args, name='Alice')
     elif args.dumb_alice:
         alice_model = MuteModel(corpus.word_dict, corpus.item_dict, corpus.context_dict, corpus.output_length, args, device_id)
         # we don't want to use Dropout during RL
@@ -202,7 +202,7 @@ def main():
     logger = DialogLogger(verbose=args.verbose, log_file=args.log_file)
     ctx_gen = ContextGenerator(args.context_file)
 
-    engine = None if args.dumb_alice else Engine(alice_model, args, device_id, verbose=False)
+    engine = None if args.super_dumb else Engine(alice_model, args, device_id, verbose=False)
 
     reinforce = Reinforce(dialog, ctx_gen, args, engine, corpus, device_id, logger)
     reinforce.run()

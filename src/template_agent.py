@@ -2,7 +2,8 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import numpy as np
-
+from torch.autograd import Variable
+from models.simple_mute import SimpleProposerModule
 
 NUM_ITEMS = 3
 MAX_ITEM_CT = 4
@@ -15,15 +16,16 @@ class TemplateAgent(object):
         self.name = name
         self.human = False
         self.domain = domain
-        self.num_choices = NUM_ITEMS * (MAX_ITEM_CT + 1)
+        self.num_choices = (MAX_ITEM_CT + 1)**NUM_ITEMS
         self.eps = args.eps
-        self.last_hidden_state = torch.zeros(reader_hidden_state)
+        
         self.word_dict = word_dict
         self.t = 0
 
         self.args = args
 
         vocab_size = len(word_dict)
+        print("vocab size is ", vocab_size)
         word_embedding_size = args.nembed_word
         ctx_size = NUM_ITEMS * 2
         reader_hidden_size = args.nreader
@@ -42,7 +44,7 @@ class TemplateAgent(object):
 
         self.all_rewards = []
         self.word_dict = word_dict
-        self.eps = eps
+        self.last_hidden_state = Variable(torch.zeros(reader_hidden_size))
         self.opt = optim.SGD(
                 self.model.parameters(),
                 lr=self.args.rl_lr,
@@ -50,18 +52,20 @@ class TemplateAgent(object):
                 nesterov=(self.args.nesterov and self.args.momentum > 0))
 
     def process_context(self, context):
-        ctx = [int(x) for x in context.split(' ')]
+        # print(context)
+        ctx = [int(x) for x in context]
         ctx_tensor = torch.Tensor(ctx)
-        return ctx_tensor
+        return Variable(ctx_tensor)
 
     def feed_context(self, ctx):
+        print("called feed context")
         self.ctx = self.process_context(ctx)
         self.item_counts =  self.ctx[::2]
         self.last_hidden_state = torch.zeros_like(self.last_hidden_state)
         self.logprobs = []
 
     def read(self, conversation_input):
-        enc_input = self.word_dict.w2i(conversation_input)
+        enc_input = Variable(torch.LongTensor(self.word_dict.w2i(conversation_input)))
         _ , self.last_hidden_state = self.model.read(enc_input, self.ctx)
 
     def write(self):
@@ -72,12 +76,14 @@ class TemplateAgent(object):
             logprob, choice = self.sample_proposal(choice_logits)
             self.logprobs.append(logprob)
         else:
-            logprob, choice = logits.max(0)
+            logprob, choice = choice_logits.max(0)
 
+        # print(logprob)
+        # print(choice)
         # TODO:penalize invalid proposal
         proposal = self.build_proposal(choice, True)
         self.my_last_proposal = proposal
-        utterance = self.fill_template(proposal)
+        utterance = self.fill_dialog_template(proposal)
 
         return utterance
 
@@ -88,45 +94,52 @@ class TemplateAgent(object):
             logprob, choice = self.sample_proposal(choice_logits)
             self.logprobs.append(logprob)
         else:
-            logprob, choice = logits.max(0)
+            logprob, choice = choice_logits.max(0)
 
         # TODO:penalize invalid proposal
         proposal = self.build_proposal(choice, False)
-        utterance = self.fill_template(proposal)
+        utterance = self.fill_choice_template(proposal)
 
         return utterance
 
 
     def sample_proposal(self, logits):
         choice = logits.multinomial(1)
+
         logprob = logits[choice]
+
+        # print(logprob)
+        # print(choice)
         return logprob, choice
 
     def fill_dialog_template(self, proposal):
         if proposal in DIALOGUE_CHOICES:
-            return proposal
+            return [proposal]
         proposal = ['no' if num == 0 else str(num) for num in proposal]
-        return TEMPLATE_STR % proposal
+        # print(proposal)
+        res = TEMPLATE_STR % tuple(proposal)
+        return res.split()
 
     def fill_choice_template(self, proposal):
         if proposal in FINAL_CHOICES:
-            return proposal
+            return [proposal]
         left_choice = ['item%d=%d' % (i,c) for i,c in enumerate(proposal)]
         right_choice = ['item%d=%d' % (i,n-c) for i, (n, c) in enumerate(zip(self.item_counts, proposal))]
-        return ' '.join(left_choice + right_choice)
+        return ' '.join(left_choice + right_choice).split()
 
     def build_proposal(self, choice, dialogue):
-        if choice > self.num_choices:
+        choice_val = choice.data[0]
+        if choice_val > self.num_choices:
             if dialogue:
-                return DIALOGUE_CHOICES[choice - (self.num_choices)]
+                return DIALOGUE_CHOICES[choice_val - (self.num_choices)]
             else:
-                return FINAL_CHOICES[choice - (self.num_choices)]
+                return FINAL_CHOICES[choice_val - (self.num_choices)]
 
         allocation = []
 
-        while choice > 0:
-            allocation.append(choice % (MAX_ITEM_CT+1))
-            choice = choice/(MAX_ITEM_CT+1)
+        for i in range(NUM_ITEMS):
+            allocation.append(choice_val % (MAX_ITEM_CT+1))
+            choice_val = choice_val//(MAX_ITEM_CT+1)
         return allocation
 
 
@@ -144,14 +157,22 @@ class TemplateAgent(object):
 
         # compute accumulated discounted reward
         g = Variable(torch.zeros(1, 1).fill_(r))
-        rewards = g * (self.args.gamma**np.arange(len(self.logprobs)))
+        rewards = []
+        for _ in self.logprobs:
+            rewards.insert(0, g)
+            g = g * self.args.gamma
 
-        loss = 0
-        # estimate the loss using one MonteCarlo rollout
-        for lp, r in zip(self.logprobs, rewards):
-            loss -= lp * r
+        logrewards = list(zip(self.logprobs, rewards))
+        if logrewards:
+            loss = -logrewards[0][0]*logrewards[0][1]
+            # estimate the loss using one MonteCarlo rollout
+            for lp, r in logrewards[1:]:
+                loss = loss - lp * r
+                # print(lpr.shape)
+                # print(loss.shape).squeeze(1)
 
-        self.opt.zero_grad()
-        loss.backward()
+
+            self.opt.zero_grad()
+            loss.backward()
         nn.utils.clip_grad_norm(self.model.parameters(), self.args.rl_clip)
         self.opt.step()

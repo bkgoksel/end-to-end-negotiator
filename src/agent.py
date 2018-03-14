@@ -359,10 +359,14 @@ class RlAgent(LstmAgent):
             rewards.insert(0, g)
             g = g * self.args.gamma
 
-        loss = 0
+        loss = Variable(torch.zeros(1))
         # estimate the loss using one MonteCarlo rollout
         for lp, r in zip(self.logprobs, rewards):
-            loss -= lp * r
+            lpr = lp * r
+            # print(lpr.shape)
+            # print(loss.shape)
+            loss -= lpr.squeeze(1)
+
 
         self.opt.zero_grad()
         loss.backward()
@@ -552,9 +556,13 @@ class DumbAgent(LstmAgent):
             g = g * self.args.gamma
 
         loss = 0
+        loss = Variable(torch.zeros(1))
         # estimate the loss using one MonteCarlo rollout
         for lp, r in zip(self.logprobs, rewards):
-            loss -= lp * r
+            lpr = lp * r
+            # print(lpr.shape)
+            # print(loss.shape)
+            loss -= lpr.squeeze(1)
 
         self.opt.zero_grad()
         loss.backward()
