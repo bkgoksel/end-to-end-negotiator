@@ -48,7 +48,7 @@ class SimpleProposerModule(modules.CudaModule):
     def propose(self, conversation_input, context_input):
 
 
-        logits = self.writer(last_hidden_state) # syntax for a single param to Linear?
+        logits = self.writer(conversation_input, context_input) #  
         return logits
         #
         pass
