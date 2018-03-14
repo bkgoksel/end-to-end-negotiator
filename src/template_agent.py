@@ -18,7 +18,7 @@ class TemplateAgent(object):
         self.domain = domain
         self.num_choices = (MAX_ITEM_CT + 1)**NUM_ITEMS
         self.eps = args.eps
-        
+
         self.word_dict = word_dict
         self.t = 0
 
@@ -77,6 +77,7 @@ class TemplateAgent(object):
             self.logprobs.append(logprob)
         else:
             logprob, choice = choice_logits.max(0)
+            self.logprobs.append(logprob)
 
         # print(logprob)
         # print(choice)
@@ -168,8 +169,6 @@ class TemplateAgent(object):
             # estimate the loss using one MonteCarlo rollout
             for lp, r in logrewards[1:]:
                 loss = loss - lp * r
-                # print(lpr.shape)
-                # print(loss.shape).squeeze(1)
 
 
             self.opt.zero_grad()
