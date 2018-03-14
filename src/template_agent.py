@@ -25,7 +25,7 @@ class TemplateAgent(object):
         self.args = args
 
         vocab_size = len(word_dict)
-        print("vocab size is ", vocab_size)
+        # print("vocab size is ", vocab_size)
         word_embedding_size = args.nembed_word
         ctx_size = NUM_ITEMS * 2
         reader_hidden_size = args.nreader
@@ -57,7 +57,7 @@ class TemplateAgent(object):
         return Variable(ctx_tensor)
 
     def feed_context(self, ctx):
-        print("called feed context")
+        # print("called feed context")
         self.ctx = self.process_context(ctx)
         self.item_counts =  self.ctx[::2]
         self.last_hidden_state = torch.zeros_like(self.last_hidden_state)
