@@ -52,7 +52,6 @@ class TemplateAgent(object):
                 nesterov=(self.args.nesterov and self.args.momentum > 0))
 
     def process_context(self, context):
-        # print(context)
         ctx = [int(x) for x in context]
         ctx_tensor = torch.Tensor(ctx)
         return Variable(ctx_tensor)
@@ -63,6 +62,7 @@ class TemplateAgent(object):
         self.item_counts =  self.ctx[::2]
         self.last_hidden_state = torch.zeros_like(self.last_hidden_state)
         self.logprobs = []
+        self.proposal_validity = []
 
     def read(self, conversation_input):
         enc_input = Variable(torch.LongTensor(self.word_dict.w2i(conversation_input)))
@@ -79,11 +79,8 @@ class TemplateAgent(object):
             logprob, choice = choice_logits.max(0)
             self.logprobs.append(logprob)
 
-        # print(logprob)
-        # print(choice)
-        # TODO:penalize invalid proposal
         proposal = self.build_proposal(choice, True)
-        self.my_last_proposal = proposal
+        self.proposal_validity.append(-1*float(self.is_valid_proposal(proposal))-1)
         utterance = self.fill_dialog_template(proposal)
 
         return utterance
@@ -96,9 +93,10 @@ class TemplateAgent(object):
             self.logprobs.append(logprob)
         else:
             logprob, choice = choice_logits.max(0)
+            self.logprobs.append(logprob)
 
-        # TODO:penalize invalid proposal
         proposal = self.build_proposal(choice, False)
+        self.proposal_validity.append(-1*float(self.is_valid_proposal(proposal))-1)
         utterance = self.fill_choice_template(proposal)
 
         return utterance
@@ -133,23 +131,30 @@ class TemplateAgent(object):
         if choice_val > self.num_choices:
             if dialogue:
                 return DIALOGUE_CHOICES[choice_val - (self.num_choices)]
-            else:
-                return FINAL_CHOICES[choice_val - (self.num_choices)]
+            return FINAL_CHOICES[choice_val - (self.num_choices)]
 
         allocation = []
 
-        for i in range(NUM_ITEMS):
+        for _ in range(NUM_ITEMS):
             allocation.append(choice_val % (MAX_ITEM_CT+1))
             choice_val = choice_val//(MAX_ITEM_CT+1)
         return allocation
+
+    def is_valid_proposal(self, proposal):
+        if proposal in DIALOGUE_CHOICES or proposal in FINAL_CHOICES:
+            return True
+
+        for (proposed, count) in zip(proposal, self.item_counts):
+            if proposed > count:
+                return False
+
+        return True
 
 
     def update(self, agree, reward):
         self.t += 1
 
         reward = reward if agree else 0
-        # TODO: Penalize convo length?
-        # TODO: Penalize bad proposals
 
         self.all_rewards.append(reward)
 
@@ -163,12 +168,12 @@ class TemplateAgent(object):
             rewards.insert(0, g)
             g = g * self.args.gamma
 
-        logrewards = list(zip(self.logprobs, rewards))
+        logrewards = list(zip(self.logprobs, rewards, self.proposal_validity))
         if logrewards:
-            loss = -logrewards[0][0]*logrewards[0][1]
+            loss = -logrewards[0][0]*logrewards[0][1] + logrewards[0][2]
             # estimate the loss using one MonteCarlo rollout
-            for lp, r in logrewards[1:]:
-                loss = loss - lp * r
+            for lp, r, v in logrewards[1:]:
+                loss = loss - lp * r + v
 
 
             self.opt.zero_grad()
