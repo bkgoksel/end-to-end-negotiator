@@ -1,10 +1,13 @@
 class TemplateAgent(Agent):
-    def __init__(self, domain, name="Template"):
+    def __init__(self, domain, name="Template", word_dict):
         self.name = name
         self.human = False
         self.domain = domain
         self.model = SimpleProposerModule()
         self.all_rewards = []
+        self.word_hidden_states = []
+        self.word_dict = word_dict
+
 
     def feed_context(self, ctx):
         self.ctx = ctx
@@ -12,8 +15,10 @@ class TemplateAgent(Agent):
         self.logprobs = []
 
     def read(self, conversation_input):
-        encoded_input = self.encode(conversation_input)
-        self.last_conversation_embedding = self.model.read(encoded_input, self.ctx_h)
+        enc_input = self.word_dict.w2i(conversation_input)
+        vocab_size = len(self.word_dict)
+        # encoded_input = self.encode(conversation_input)
+        self.last_conversation_embedding, last_hidden_state = self.model.read(enc_input, self.ctx_h, vocab_size)
 
     def write(self):
         choice_logits = self.model.propose(self.last_conversation_embedding, self.my_last_proposal, self.ctx_h)
