@@ -373,10 +373,8 @@ class RlAgent(LstmAgent):
                 loss = loss - lp * r
                 # print(lpr.shape)
                 # print(loss.shape).squeeze(1)
-
-
-	        self.opt.zero_grad()
-	        loss.backward()
+                self.opt.zero_grad()
+                loss.backward()
         nn.utils.clip_grad_norm(self.model.parameters(), self.args.rl_clip)
         if self.args.visual and self.t % 10 == 0:
             self.model_plot.update(self.t)
