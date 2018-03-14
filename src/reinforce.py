@@ -24,8 +24,10 @@ import utils
 from engine import Engine
 from utils import ContextGenerator
 from agent import LstmAgent, LstmRolloutAgent, RlAgent, DumbAgent
+from template_agent import TemplateAgent
 from dialog import Dialog, DialogLogger
 from models.mute import MuteModel
+from models.simple_mute import SimpleProposerModule
 
 
 class Reinforce(object):
@@ -86,6 +88,10 @@ def main():
         help='size of word embeddings')
     parser.add_argument('--nembed_ctx', type=int, default=64,
         help='size of context embeddings')
+    parser.add_argument('--nreader', type=int, default=64,
+        help='hidden size of the reader GRU')
+    parser.add_argument('--nproposer', type=int, default=64,
+        help='hidden size of the proposer GRU')
     parser.add_argument('--nhid_lang', type=int, default=256,
         help='size of the hidden state for the language module')
     parser.add_argument('--nhid_ctx', type=int, default=64,
@@ -160,12 +166,19 @@ def main():
         help='plot graphs')
     parser.add_argument('--domain', type=str, default='object_division',
         help='domain for the dialogue')
+    parser.add_argument('--super_dumb', action='store_true', default=False,
+        help='this is the super dumb model that was our only successful model to run* *this has not yet been achieved')
     args = parser.parse_args()
 
     device_id = utils.use_cuda(args.cuda)
     run = "python3 reinforce.py --alice_model_file='./models/sv_model.th' --bob_model_file='./models/sv_model.th' --output_model_file='output.th' --verbose --ref_text='./data/negotiate/train.txt' --dumb_alice --context_file='./data/negotiate/selfplay.txt'"
     corpus = data.WordCorpus(args.data, freq_cutoff=args.unk_threshold, verbose=True)
-    if args.dumb_alice:
+    
+    if args.super_dumb:
+        # alice_model = SimpleProposerModule()
+        # alice_model.eval()
+        alice = TemplateAgent(args.domain, corpus.word_dict, args, name='Alice is dead Long live Alice')
+    elif args.dumb_alice:
         alice_model = MuteModel(corpus.word_dict, corpus.item_dict, corpus.context_dict, corpus.output_length, args, device_id)
         # we don't want to use Dropout during RL
         alice_model.eval()
