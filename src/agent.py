@@ -555,14 +555,15 @@ class DumbAgent(LstmAgent):
             rewards.insert(0, g)
             g = g * self.args.gamma
 
-        loss = 0
-        loss = Variable(torch.zeros(1))
-        # estimate the loss using one MonteCarlo rollout
-        for lp, r in zip(self.logprobs, rewards):
-            lpr = lp * r
-            # print(lpr.shape)
-            # print(loss.shape)
-            loss -= lpr.squeeze(1)
+        logrewards = list(zip(self.logprobs, rewards))
+        if logrewards:
+            loss = -logrewards[0][0]*logrewards[0][1]
+            # estimate the loss using one MonteCarlo rollout
+            for lp, r in logrewards[1:]:
+                loss = loss - lp * r
+                # print(lpr.shape)
+                # print(loss.shape).squeeze(1)
+
 
         self.opt.zero_grad()
         loss.backward()

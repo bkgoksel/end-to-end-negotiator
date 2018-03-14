@@ -23,7 +23,7 @@ import data
 import utils
 from engine import Engine
 from utils import ContextGenerator
-from agent import LstmAgent, LstmRolloutAgent, RlAgent, DumbAgent
+from agent import LstmAgent, LstmRolloutAgent, RlAgent, DumbAgent, BatchedRolloutAgent
 from template_agent import TemplateAgent
 from dialog import Dialog, DialogLogger
 from models.mute import MuteModel
@@ -158,6 +158,10 @@ def main():
         help='file with the reference text')
     parser.add_argument('--bsz', type=int, default=8,
         help='batch size')
+    parser.add_argument('--rollout_bsz', type=int, default=8,
+        help='rollout batch size')
+    parser.add_argument('--rollout_count_threshold', type=int, default=10,
+        help='rollout batch size')
     parser.add_argument('--sv_train_freq', type=int, default=-1,
         help='supervision train frequency')
     parser.add_argument('--nepoch', type=int, default=4,
