@@ -103,6 +103,8 @@ def main():
         help='log successful dialogs to file for training')
     parser.add_argument('--smart_bob', action='store_true', default=False,
         help='make Bob smart again')
+    parser.add_argument('--train_bob', action='store_true', default=False,
+        help='train Bob as well as Alice')
     parser.add_argument('--gamma', type=float, default=0.99,
         help='discount factor')
     parser.add_argument('--eps', type=float, default=0.5,
@@ -119,6 +121,8 @@ def main():
         help='RL learning rate')
     parser.add_argument('--rl_clip', type=float, default=0.1,
         help='RL gradient clip')
+    parser.add_argument('--lm_lambda', type=float, default=0.1,
+        help='Weight of LM score in RL rewarding')
     parser.add_argument('--ref_text', type=str,
         help='file with the reference text')
     parser.add_argument('--bsz', type=int, default=8,
@@ -138,14 +142,23 @@ def main():
     alice_model = utils.load_model(args.alice_model_file)
     # we don't want to use Dropout during RL
     alice_model.eval()
+    # ground truth model for LM scoring utterances
+    alice_lm_model = utils.load_model(args.alice_model_file)
+    # we don't want to use Dropout during RL
+    alice_lm_model.eval()
     # Alice is a RL based agent, meaning that she will be learning while selfplaying
-    alice = RlAgent(alice_model, args, name='Alice')
+    alice = RlAgent(alice_model, args, alice_lm_model, name='Alice')
 
-    # we keep Bob frozen, i.e. we don't update his parameters
-    bob_ty = LstmRolloutAgent if args.smart_bob else LstmAgent
-    bob_model = utils.load_model(args.bob_model_file)
-    bob_model.eval()
-    bob = bob_ty(bob_model, args, name='Bob')
+    if args.train_bob:
+        bob_model = utils.load_model(args.bob_model_file)
+        bob_model.eval()
+        bob = RlAgent(bob_model, args, alice_lm_model, name='Bob')
+    else:
+        # we keep Bob frozen, i.e. we don't update his parameters
+        bob_ty = LstmRolloutAgent if args.smart_bob else LstmAgent
+        bob_model = utils.load_model(args.bob_model_file)
+        bob_model.eval()
+        bob = bob_ty(bob_model, args, name='Bob')
 
     dialog = Dialog([alice, bob], args)
     logger = DialogLogger(verbose=args.verbose, log_file=args.log_file)

@@ -302,8 +302,9 @@ class BatchedRolloutAgent(LstmRolloutAgent):
 
 class RlAgent(LstmAgent):
     """An Agent that updates the model parameters using REINFORCE to maximize the reward."""
-    def __init__(self, model, args, name='Alice'):
+    def __init__(self, model, args, lm_model, name='Alice'):
         super(RlAgent, self).__init__(model, args, name=name)
+        self.lm_model = lm_model
         self.opt = optim.SGD(
             self.model.parameters(),
             lr=self.args.rl_lr,
@@ -323,10 +324,19 @@ class RlAgent(LstmAgent):
         # save all the log probs for each generated word,
         # so we can use it later to estimate policy gradient.
         self.logprobs = []
+        self.sentence_scores = []
 
     def write(self):
+        old_lang_h = self.lang_h
         logprobs, outs, self.lang_h, lang_hs = self.model.write(self.lang_h, self.ctx_h,
             100, self.args.temperature)
+
+
+        sentence_likelihood, _, _ = self.lm_model.score_sent(outs, old_lang_h, self.ctx_h, self.args.temperature, var_word=False)
+        sentence_score = np.zeros(len(logprobs))
+        sentence_score[-1] = sentence_likelihood*self.args.lm_lambda
+        self.sentence_scores.extend(sentence_score)
+
         # append log probs from the generated words
         self.logprobs.extend(logprobs)
         self.lang_hs.append(lang_hs)
@@ -344,16 +354,30 @@ class RlAgent(LstmAgent):
             choice, logprob, _ = self._choose(sample=True)
             # save log prob for the selection as well, if we sample it
             self.logprobs.append(logprob)
+            # for shape matching in REINFORCE computation
+            self.sentence_scores.append(0)
         return choice
 
     def update(self, agree, reward):
         self.t += 1
-        reward = reward if agree else 0
+        final_reward = reward if agree else 0
         self.all_rewards.append(reward)
         # standardize the reward
-        r = (reward - np.mean(self.all_rewards)) / max(1e-4, np.std(self.all_rewards))
+        r = (final_reward - np.mean(self.all_rewards)) / max(1e-4, np.std(self.all_rewards))
         # compute accumulated discounted reward
         g = Variable(torch.zeros(1, 1).fill_(r))
+
+        num_timesteps = len(self.logprobs)
+        # rewards is discounted sum of rewards from timestep t till end
+        # which includes r*gamma^t + np.multiply(sent_rewards[t:], gammas)
+
+        sentence_scores = torch.Tensor(self.sentence_scores)
+        sentence_returns = []
+        for t in range(num_timesteps):
+            t_till_end = num_timesteps - t
+            gammas = torch.Tensor(np.geomspace(1, self.args.gamma**(t_till_end-1), num=t_till_end))
+            sentence_returns.append(torch.sum(torch.mul(sentence_scores[t:], gammas)))
+
         rewards = []
         for _ in self.logprobs:
             rewards.insert(0, g)
@@ -361,8 +385,8 @@ class RlAgent(LstmAgent):
 
         loss = 0
         # estimate the loss using one MonteCarlo rollout
-        for lp, r in zip(self.logprobs, rewards):
-            loss -= lp * r
+        for lp, r, s_r in zip(self.logprobs, rewards, sentence_returns):
+            loss -= lp * (r - s_r)
 
         self.opt.zero_grad()
         loss.backward()

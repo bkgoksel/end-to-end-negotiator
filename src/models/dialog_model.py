@@ -322,7 +322,7 @@ class DialogModel(modules.CudaModule):
 
         return logprobs, torch.cat(outs), lang_h, torch.cat(lang_hs)
 
-    def score_sent(self, sent, lang_h, ctx_h, temperature):
+    def score_sent(self, sent, lang_h, ctx_h, temperature, var_word=True):
         """Computes likelihood of a given sentence."""
         score = 0
         # remove batch dimension from the language and context hidden states
@@ -351,7 +351,8 @@ class DialogModel(modules.CudaModule):
 
             logprob = F.log_softmax(scores)
             score += logprob[word[0]].data[0]
-            inpt = Variable(word)
+            if var_word:
+                inpt = Variable(word)
 
         # update the hidden state with the <eos> token
         inpt_emb = torch.cat([self.word_encoder(inpt), ctx_h], 1)
